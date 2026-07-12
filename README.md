@@ -1,207 +1,299 @@
-# Auto Backup Script (Windows + External Drive)
+# Sentinel Backup
 
-A continuous Python sync script that watches your Desktop folder named **External Backup**, encrypts new items with AES-256-GCM, uploads the encrypted copies to your chosen destination (a local/external drive, an SMB network share, AWS S3, or Azure Blob Storage), and then moves successfully processed source items to the Recycle Bin.
+**Verified, encrypted backup for Windows, with a tamper-evident audit trail.**
 
-This Tool is designed for Intermediate to Advanced users and can be run directly from PowerShell (with or without VS Code).
+Most backup scripts copy a file, assume it worked, and delete the original. If the
+copy was truncated, landed on a failing sector, or never made it past the USB
+bridge's write cache, you don't find out until the day you need the file — and by
+then the only good copy is long gone.
 
-## What This Script Does
+Sentinel does not assume. It hashes the source, encrypts it, writes the encrypted
+copy, reads the bytes **back off the destination**, decrypts and hashes them again,
+and only releases the original if the two hashes match. If they don't match, the
+copy is discarded and your source file stays exactly where it is.
 
-- Detects your Desktop source folder, including OneDrive Desktop redirection.
-- Checks that your local/external drive destination is connected (for local/SMB destinations).
-- Encrypts every file individually with AES-256-GCM before it ever leaves your machine (**encryption at rest**).
-- Uploads to S3 or Azure Blob Storage over HTTPS/TLS (**encryption in transit**) when using those destinations.
-- Continuously watches the source folder on a timer.
-- Overwrites existing destination items cleanly.
-- Moves successfully processed source items to the Recycle Bin.
-- Prints clear cycle-by-cycle logs.
+That single discipline — *verify before you release* — is the product. Every file is
+also encrypted with AES-256-GCM before it leaves this machine, so the destination —
+a local drive, an SMB share, an S3 bucket, or an Azure Blob container — never holds
+plaintext.
 
-## Project Structure
+---
 
-- `backup_to_external_drive.py` - Main backup script.
-- `crypto_utils.py` - AES-256-GCM file encryption/decryption and key management.
-- `destinations.py` - Destination backends (local/SMB, S3, Azure Blob).
-- `restore_backup.py` - CLI to decrypt/restore backed-up files.
-
-## Requirements
-
-- Windows
-- Python 3.8+
-- A destination: an external drive letter, an SMB share path, an S3 bucket, or an Azure Storage container
-- Python packages: see `requirements.txt`
-
-## Security Model
-
-- **At rest:** every file is encrypted individually with AES-256-GCM (authenticated encryption — corruption or tampering is detected on restore) before it is written to the destination. This applies to every destination type, including a local external drive, so the backup drive itself never holds plaintext.
-- **In transit:** for the S3 and Azure Blob destinations, uploads happen over HTTPS by default via the AWS/Azure SDKs; both destination backends explicitly reject non-HTTPS endpoints/connection strings. For a local external drive there is no network transit. For an SMB network share, also turn on SMB 3.x encryption on that share (`New-SmbShare ... -EncryptData $true` or `Set-SmbShare -EncryptData $true`) for transport-level protection in addition to the file-level encryption already applied.
-- **Restoring:** encrypted files are useless without the same encryption key the backup was written with. Whichever `KEY_SOURCE` you use, make sure the key (or the means to derive/unprotect it) is itself backed up somewhere safe and separate from the backup destination — losing the key means losing the backups.
-
-## Default Paths Used
-
-- **Source folder name:** `External Backup`
-- **Destination drive (default):** `E:\`
-- **Destination folder name:** `Automated_Backups`
-- **Final destination (default):** `E:\Automated_Backups`
-
-## Quick Start
-
-### 1. Clone or download this project
-
-Place the folder anywhere on your computer.
-
-### 2. Create your source folder on Desktop
-
-Create a folder named:
-
-- `External Backup`
-
-Put any files/folders you want to back up into that folder.
-
-### 3. Install dependencies
+## Install
 
 ```powershell
 pip install -r requirements.txt
+python sentinel_backup.py init      # writes sentinel_config.json
 ```
 
-If `pip` is not recognized:
+`boto3` and `azure-storage-blob` are only needed if you use the S3 or Azure
+destination respectively; `pywin32` is only needed for `key_source: "dpapi"`. See
+`requirements.txt` for details.
 
-```powershell
-py -m pip install -r requirements.txt
-```
+### Set up encryption
 
-`boto3` and `azure-storage-blob` are only needed if you use the S3 or Azure destination respectively; `pywin32` is only needed for `KEY_SOURCE=dpapi`. See `requirements.txt` for details.
-
-### 4. Set up encryption
-
-Pick a `KEY_SOURCE` (see [Encryption Key Management](#encryption-key-management-key_source) below). The simplest to get started with:
+Every backup is encrypted, so pick a key source before your first run. The simplest:
 
 ```powershell
 python crypto_utils.py --generate-key
 ```
 
-Copy the printed value into an environment variable before running the script:
+Copy the printed value into an environment variable:
 
 ```powershell
 $env:BACKUP_ENCRYPTION_KEY = "<paste the generated key here>"
 ```
 
-Set this permanently (so scheduled/unattended runs pick it up) with `[Environment]::SetEnvironmentVariable("BACKUP_ENCRYPTION_KEY", "<key>", "User")`.
+Set it permanently (so scheduled/unattended runs pick it up) with
+`[Environment]::SetEnvironmentVariable("BACKUP_ENCRYPTION_KEY", "<key>", "User")`.
+See [Encryption Key Management](#encryption-key-management) for the other three
+options (passphrase, key file, DPAPI-protected key file).
 
-### 5. Configure and connect your destination
-
-By default the script targets a local external drive at `E:\`. Connect it, or edit the configuration (see [Configuration](#configuration) below) to point at an SMB share, S3 bucket, or Azure container instead.
-
-### 6. Run from PowerShell
-
-From the project folder:
+### Rehearse, then run
 
 ```powershell
-Set-Location "C:\path\to\Auto_Backup"
-python ".\backup_to_external_drive.py"
+python sentinel_backup.py status    # confirm it sees your destination
+python sentinel_backup.py run --dry-run
 ```
 
-If `python` is not recognized:
+`--dry-run` shows every file it *would* encrypt, upload, and hash, and touches
+nothing. Run it first. Always run it first.
+
+When you're satisfied:
 
 ```powershell
-Set-Location "C:\path\to\Auto_Backup"
-py ".\backup_to_external_drive.py"
+python sentinel_backup.py run
+.\Install-SentinelTask.ps1 -IntervalHours 6
 ```
 
-Run from any folder (full path):
+---
+
+## The one local-destination setting that matters
+
+Open `sentinel_config.json` and set your drive's **volume label**:
+
+```json
+{
+  "destination_type": "local",
+  "target_volume_label": "BACKUP_HDD",
+  "target_drive_letter": "E:\\"
+}
+```
+
+Right-click the drive in File Explorer → Rename → give it a name, and put that name
+in `target_volume_label`.
+
+Windows reassigns drive letters constantly — plug in a phone, an SD card, or a
+second stick and yesterday's `E:` is today's `G:`. A drive-letter-based backup then
+"skips" every cycle, cheerfully, forever, and you never notice. Sentinel scans every
+mounted volume for the label and finds your disk no matter what letter it landed on.
+The drive letter stays in the config only as a fallback. For an SMB share, set
+`target_drive_letter` to a UNC path (e.g. `\\server\share\Backups`) and leave
+`target_volume_label` blank — Windows treats UNC paths like local paths.
+
+---
+
+## Commands
 
 ```powershell
-python "C:\path\to\Auto_Backup\backup_to_external_drive.py"
+python sentinel_backup.py status                  # destination, capacity, files banked, last run
+python sentinel_backup.py run                     # one verified sync cycle, then exit
+python sentinel_backup.py run --dry-run           # rehearsal - writes nothing
+python sentinel_backup.py watch                   # continuous loop (dev/testing)
+python sentinel_backup.py verify                  # re-download, decrypt, re-hash the whole archive
+python sentinel_backup.py restore --to "C:\Recovered" --pattern "*.pdf"
+python sentinel_backup.py prune                   # age out old versions (local/SMB only)
 ```
 
-## Example Output
+Exit codes are meaningful, so you can wire this into monitoring:
+`0` success · `1` verification failure · `2` destination not connected / key error ·
+`3` bad source · `4` insufficient space.
 
-```text
-============================================================
-	WOLF-PAK FILE SYSTEM SHIELD - AUTOMATED SYNC
-============================================================
-Watching folder: C:\Users\YourName\OneDrive\Desktop\External Backup
-Backup target:   E:\Automated_Backups
-Encryption:      AES-256-GCM at rest (KEY_SOURCE=env)
-Checking every 6 hours. Press Ctrl+C to stop.
+---
 
-🚀 [2026-07-09 10:17:46] New items detected! Starting sync...
-📦 Destination: E:\Automated_Backups (encrypted at rest, AES-256-GCM)
---------------------------------------------------
-✅ Encrypted + uploaded file:   example.zip
-🗑️  Moved to Recycle Bin: example.zip
-✨ Sync cycle complete. Source folder is clear.
+## `verify` — the command that justifies the price
+
+Run it monthly. It walks the manifest, downloads and decrypts each file from the
+destination, and re-hashes the plaintext against the hash recorded when it was
+written. Because AES-256-GCM authenticates every chunk on decrypt, a single flipped
+bit anywhere in the encrypted object makes decryption fail outright rather than
+silently returning corrupted bytes.
+
+```
+Verifying 1,284 file(s) against manifest (local)
+------------------------------------------------------------------
+  [CORRUPT ] Contracts/2025/msa-final.pdf
+             expected a948904f2f0f479b8f819769
+             actual   e5b4bdff3472e5db4eac57bd
+------------------------------------------------------------------
+  1283 intact  |  0 missing  |  1 corrupt or modified
+  audit log: audit chain intact
 ```
 
-Stop the script any time with `Ctrl+C`.
+That output means one of three things happened to that file: the drive is developing
+bad sectors, something modified an archived object out from under Sentinel, or
+something corrupted it in transit. All three are things you want to learn about in a
+monthly check rather than during a recovery.
 
-## Configuration
+---
 
-In `backup_to_external_drive.py`, edit these values, or set the matching environment variable:
+## The audit trail
 
-- `DESTINATION_TYPE` / `BACKUP_DESTINATION_TYPE` env var — `"local"` (default, also covers SMB/UNC), `"s3"`, or `"azure"`.
-- `TARGET_DRIVE_LETTER` (example: `"E:\\"`, or a UNC path like `r"\\server\share"` for SMB) — used when `DESTINATION_TYPE="local"`.
-- `BACKUP_FOLDER_NAME` (example: `"Automated_Backups"`).
-- `CHECK_INTERVAL_HOURS` (example: `6`).
-- `KEY_SOURCE` / `KEY_SOURCE` env var — see below.
+Every action lands in a local `_sentinel/logs/audit-YYYY-MM.jsonl` as one JSON object
+per line: timestamp, host, user, file path, SHA-256, and how the source was disposed
+of. For local/SMB destinations this log lives on the destination itself, alongside
+the encrypted backup; for S3/Azure it lives in `.sentinel_state/` next to the script
+(there's no "drive" for it to travel with in the cloud case — see
+[Where state lives](#where-state-lives)).
 
-### S3 destination (`DESTINATION_TYPE="s3"`)
+Each record also carries the hash of the record before it. Edit or delete any
+historical line and every hash after it stops validating — `verify` reports exactly
+which line broke. You cannot quietly rewrite this log after the fact.
 
-- `BACKUP_S3_BUCKET` env var — target bucket name.
-- `AWS_REGION` env var — bucket region.
-- `BACKUP_S3_ENDPOINT_URL` env var — only needed for S3-compatible services (e.g. Backblaze B2, MinIO); must be `https://`.
-- AWS credentials come from the standard AWS credential chain (environment variables, `~/.aws/credentials`, or an assumed role) — never hardcode keys in the script.
-- Objects are also uploaded with `ServerSideEncryption=AES256` by default, in addition to the client-side AES-256-GCM encryption already applied.
+```json
+{"ts":"2026-07-12T19:47:20Z","event":"copy_verified","host":"WS-01","user":"elijah",
+ "path":"Contracts/msa-final.pdf","sha256":"a948904f...","disposal":"moved to Recycle Bin",
+ "prev":"b780e908...","chain":"25f76e10..."}
+```
 
-### Azure Blob destination (`DESTINATION_TYPE="azure"`)
+**What this is honestly good for:** producing durable, verifiable evidence that a
+given file was backed up, encrypted, at a given time, with a proven-intact copy — and
+that the record hasn't been altered since. That's a genuinely useful artifact when
+you need to demonstrate that a data-protection or media-integrity control is actually
+operating, not just documented.
 
-- `BACKUP_AZURE_CONTAINER` env var — target container name (created automatically if missing).
-- `AZURE_STORAGE_CONNECTION_STRING` env var — your Azure Storage connection string. Must use `https`; the script rejects `http` connection strings.
+**What it is not:** a compliance certification. No script makes an organization SOC 2
+or NIST compliant — those are organizational programs assessed across people, process,
+and technology. Sentinel is a control *implementation* that generates evidence. Claiming
+more than that is the kind of thing an auditor notices, and it will cost you more
+credibility than it buys.
 
-## Encryption Key Management (`KEY_SOURCE`)
+If you need to map it: this supports the *Protect* and *Recover* functions of NIST CSF
+2.0 (specifically PR.DS-1, data-at-rest protection, and PR.DS-11, backups created,
+protected, and verified) and produces evidence relevant to Availability and
+Processing Integrity criteria. Cite it that way, not as "SOC 2 compliant."
 
-Set via the `KEY_SOURCE` environment variable (or edit the constant in `backup_to_external_drive.py`). All modes use AES-256-GCM under the hood — this only controls where the 32-byte key comes from:
+---
 
-| KEY_SOURCE | How it works | Unattended? | Notes |
+## Encryption and destinations
+
+### Security model
+
+- **At rest:** every file is encrypted individually with AES-256-GCM (authenticated —
+  corruption or tampering is detected on decrypt) before it is ever written to a
+  destination. This applies to every destination type, including a local external
+  drive, so the backup drive itself never holds plaintext.
+- **In transit:** for S3 and Azure Blob, uploads happen over HTTPS by default via the
+  AWS/Azure SDKs; both destination backends explicitly reject non-HTTPS
+  endpoints/connection strings. For a local external drive there is no network
+  transit. For an SMB share, also enable SMB 3.x encryption on that share
+  (`Set-SmbShare -EncryptData $true`) for transport-level protection in addition to
+  the file-level encryption already applied.
+- **Restoring:** encrypted files are useless without the same encryption key the
+  backup was written with. Whichever `key_source` you use, make sure the key (or the
+  means to derive/unprotect it) is itself backed up somewhere safe and separate from
+  the backup destination — losing the key means losing the backups.
+
+### Destination configuration
+
+Set `destination_type` in `sentinel_config.json` to `"local"` (default, also covers
+SMB/UNC), `"s3"`, or `"azure"`.
+
+**S3** (`destination_type: "s3"`)
+
+- `s3_bucket`, `s3_prefix`, `s3_region` — target bucket/prefix/region.
+- `s3_endpoint_url` — only for S3-compatible services (Backblaze B2, MinIO); must be
+  `https://`.
+- AWS credentials come from the standard AWS credential chain (environment
+  variables, `~/.aws/credentials`, or an assumed role) — never hardcode keys here.
+- Objects are also uploaded with `ServerSideEncryption=AES256`, in addition to the
+  client-side AES-256-GCM encryption already applied.
+- `prune` is not implemented for S3 — use an S3 Lifecycle rule on the
+  `_sentinel/versions/` prefix instead.
+
+**Azure Blob** (`destination_type: "azure"`)
+
+- `azure_container`, `azure_prefix` — target container (created automatically if
+  missing) and prefix.
+- `azure_connection_string_env` — name of the environment variable holding your
+  connection string (default `AZURE_STORAGE_CONNECTION_STRING`). Must use `https`;
+  Sentinel rejects `http` connection strings.
+- `prune` is not implemented for Azure — use a Blob lifecycle management policy on
+  the `_sentinel/versions/` prefix instead.
+
+### Encryption key management
+
+Set `key_source` in `sentinel_config.json` (or the matching env vars). All modes use
+AES-256-GCM under the hood — this only controls where the 32-byte key comes from:
+
+| key_source | How it works | Unattended? | Notes |
 |---|---|---|---|
-| `env` (default) | Reads a base64 key from `BACKUP_ENCRYPTION_KEY`. | Yes | Generate one with `python crypto_utils.py --generate-key`. |
+| `env` (default) | Reads a base64 key from the env var named by `key_env_var`. | Yes | Generate one with `python crypto_utils.py --generate-key`. |
 | `prompt` | Prompts for a passphrase at startup; a key is derived via PBKDF2 (600,000 iterations) using a salt stored in `backup_salt.bin`. | No | Most explicit option; keep `backup_salt.bin` with your backups. |
-| `keyfile` | Auto-generates a random key on first run and saves it (base64) to `%USERPROFILE%\.wolfpak_backup_key`. | Yes | Back up this file somewhere separate from the backup destination. |
-| `dpapi` | Same as `keyfile`, but the key is encrypted with Windows DPAPI, tied to your Windows account, at `%USERPROFILE%\.wolfpak_backup_key.dpapi`. Requires `pywin32`. | Yes | Can only be unprotected from this Windows account on this machine. Export an offline copy with `python crypto_utils.py --export-key --key-source dpapi`. |
+| `keyfile` | Auto-generates a random key on first run and saves it (base64) to `%USERPROFILE%\.wolfpak_backup_key` (or `key_file` if set). | Yes | Back up this file somewhere separate from the backup destination. |
+| `dpapi` | Same as `keyfile`, but the key is encrypted with Windows DPAPI, tied to your Windows account. Requires `pywin32`. | Yes | Can only be unprotected from this Windows account on this machine. Export an offline copy with `python crypto_utils.py --export-key --key-source dpapi`. |
 
-## Restoring a Backup
+### Where state lives
 
-Encrypted files are written with a `.enc` suffix. To decrypt them, use `restore_backup.py` with the same `KEY_SOURCE` (and key/env var/salt file) the backup was originally written with:
+- **Local/SMB destination:** the manifest and audit log live under `_sentinel/` on
+  the destination itself, next to the encrypted files — the archive is
+  self-describing and travels with the drive.
+- **S3/Azure destination:** there's no physical drive for the manifest/audit log to
+  travel with, so they're kept locally in `.sentinel_state/` next to
+  `sentinel_backup.py`. Back this folder up if you rely on it (e.g. for `verify` or
+  `restore` from another machine).
 
-```powershell
-python restore_backup.py "E:\Automated_Backups" "C:\path\to\restore_here" --key-source env
-```
+---
 
-This works on a single `.enc` file or a whole folder tree (folder mode walks recursively and preserves the relative structure, stripping the `.enc` suffix).
+## What it does not do
 
-## Troubleshooting
+Stated plainly, because buyers find these out anyway:
 
-### Error: Destination is not connected
+- **Not real-time.** It runs on a schedule. A file created and destroyed between
+  cycles is never seen.
+- **Windows-first.** The volume-label lookup uses a Win32 call. It runs on macOS/Linux
+  with the drive-path fallback, but that path is less tested.
+- **Cloud pruning isn't automated.** `prune` only manages local/SMB version files —
+  for S3/Azure, use the provider's own lifecycle rules (see above).
 
-- Confirm the drive letter or share path is correct in File Explorer.
-- Update `TARGET_DRIVE_LETTER` in the script if your drive uses a different letter, or if pointing at an SMB share, confirm it's reachable.
+---
 
-### Error: Source folder does not exist
+## Safety design
 
-- Ensure a Desktop folder named `External Backup` exists.
-- If using OneDrive Desktop, the script already checks that location first.
+The things that stop this from eating your data:
 
-### Error: could not prepare encryption/destination
+1. **Verify before release.** Hash match required, after decryption, no exceptions.
+2. **Encrypt before it ever leaves this machine.** Plaintext never touches the
+   destination, local or cloud.
+3. **Staged, atomic-as-possible writes.** Copies land at a `.sentinel-part` staging
+   name and are promoted to their final name only after read-back verification
+   passes — a real atomic rename on local/SMB, copy-then-delete on S3/Azure (the
+   closest either service offers). A power cut or interrupted upload never leaves a
+   plausible-looking half file live in your archive.
+4. **`os.fsync()` before local read-back.** Without it you'd be re-reading your own
+   OS write cache and verifying nothing at all. This is the detail almost every
+   homegrown backup script gets wrong.
+5. **No `os.remove()` on a source file, anywhere in the codebase.** Recycle Bin or a
+   dated quarantine folder. Both are reversible.
+6. **Stability check.** A file still being written (a download in progress, a video
+   export) is deferred to the next cycle instead of being backed up half-formed.
+7. **Free-space preflight (local/SMB).** Aborts before filling the drive, rather than
+   dying halfway.
+8. **Versioning.** Existing backups are moved aside, never destroyed to make room.
 
-- For `KEY_SOURCE=env`, confirm `BACKUP_ENCRYPTION_KEY` is set and decodes to exactly 32 bytes.
-- For S3/Azure, confirm credentials/connection string env vars are set and the endpoint uses HTTPS.
+---
 
-### python command not found
+## Requirements
 
-- Try `py` instead of `python`.
-- Or install Python from python.org and ensure it is added to PATH.
+- Windows 10/11 (macOS/Linux run in fallback mode for local destinations)
+- Python 3.9+
+- `send2trash` — optional. Without it, released files go to a quarantine folder
+  instead of the Recycle Bin. Nothing is ever hard-deleted either way.
+- `cryptography` — required, powers the AES-256-GCM encryption.
+- `pywin32` — only required for `key_source: "dpapi"`.
+- `boto3` — only required for `destination_type: "s3"`.
+- `azure-storage-blob` — only required for `destination_type: "azure"`.
 
-## Notes
+## License
 
-- This script runs continuously until you stop it.
-- Every file is encrypted individually before upload; folder structure is preserved on the destination with each file suffixed `.enc`.
-- Existing destination files/folders are overwritten cleanly on re-sync.
-- Source items are moved to Recycle Bin only after the entire item (including all files in a folder) is successfully encrypted and uploaded.
+See `LICENSE`.
