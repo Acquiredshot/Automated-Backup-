@@ -2,11 +2,14 @@
 send2trash
 cryptography
 
-# Required only if KEY_SOURCE=dpapi (Windows DPAPI-protected key file)
+# Required only if key_source=dpapi (Windows DPAPI-protected key file)
 pywin32; sys_platform == "win32"
 
-# Required only if BACKUP_DESTINATION_TYPE=s3
+# Required only if destination_type=s3
 boto3
 
-# Required only if BACKUP_DESTINATION_TYPE=azure
+# Required only if destination_type=azure
 azure-storage-blob
+
+# Required only for the GUI (sentinel_gui.py)
+PySide6

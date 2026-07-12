@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+
+# Machine-local Sentinel Backup state - not templates, not shared
+sentinel_config.json
+backup_salt.bin
+.sentinel_state/
+.wolfpak_backup_key
+.wolfpak_backup_key.dpapi

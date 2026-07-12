@@ -19,6 +19,33 @@ plaintext.
 
 ---
 
+## GUI
+
+```powershell
+python sentinel_gui.py
+```
+
+A PySide6 control panel over the same engine the CLI uses — nothing about the backup
+logic changes, it's the same `SentinelBackup` class either way. Four tabs:
+
+- **Dashboard** — live status (destination connectivity, encryption, capacity, files
+  banked), and one-click Run (with a dry-run toggle), Verify, and Prune.
+- **Restore** — glob pattern, destination folder picker, dry-run toggle.
+- **Config** — every `sentinel_config.json` field as a form (source, local/S3/Azure
+  destination settings, release/versioning, retention/filters, encryption key
+  management, alerts), with Save/Reload. Includes buttons to generate a new AES-256
+  key and set it as your user environment variable, or to initialize a `keyfile`/
+  `dpapi` key.
+- **Scheduling** — install, check, run, or uninstall the Windows Scheduled Task
+  (wraps `Install-SentinelTask.ps1`) without leaving the app.
+
+Only one action runs at a time; the rest of the window stays interactive while a
+backup, verify, or restore is in progress, with output streaming into the activity
+log at the bottom. Use `pythonw sentinel_gui.py` instead of `python` to launch
+without a console window trailing it.
+
+---
+
 ## Install
 
 ```powershell
@@ -293,6 +320,7 @@ The things that stop this from eating your data:
 - `pywin32` — only required for `key_source: "dpapi"`.
 - `boto3` — only required for `destination_type: "s3"`.
 - `azure-storage-blob` — only required for `destination_type: "azure"`.
+- `PySide6` — only required to run `sentinel_gui.py`; the CLI has no GUI dependency.
 
 ## License
 
