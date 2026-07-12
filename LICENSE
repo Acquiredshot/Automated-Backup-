@@ -1,21 +1,64 @@
-MIT License
+Sentinel Backup - End User License Agreement
 
 Copyright (c) 2026 Wolf-Pak Innovations
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software ("Sentinel Backup") is licensed, not sold. By downloading,
+installing, or using Sentinel Backup, you agree to the terms below.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. FREE TRIAL
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   Sentinel Backup may be used free of charge for a trial period of seven
+   (7) calendar days from first run, with all features fully available.
+
+2. SUBSCRIPTION REQUIRED AFTER THE TRIAL
+
+   After the trial period, creating new backups (the `run` and `watch`
+   commands, and the corresponding GUI actions) requires an active paid
+   subscription from Wolf-Pak Innovations. Verifying, restoring, and
+   checking the status of backups already created remain available at all
+   times regardless of subscription status - a lapsed subscription never
+   blocks access to your own previously-encrypted data.
+
+   Subscriptions are billed monthly or annually under the Personal or
+   Business plan. See the current pricing page or contact
+   wolfpak_innovations@outlook.com. A one-time perpetual Personal license
+   is also available on request.
+
+3. LICENSE GRANT
+
+   Subject to an active trial or paid subscription in good standing,
+   Wolf-Pak Innovations grants you a non-exclusive, non-transferable
+   license to install and use Sentinel Backup on the number of machines
+   covered by your plan. You may not resell, sublicense, or redistribute
+   the software, and you may not circumvent or attempt to circumvent the
+   trial/license enforcement mechanism.
+
+4. YOUR DATA
+
+   Sentinel Backup encrypts your files locally before they reach any
+   destination and never transmits your data to Wolf-Pak Innovations.
+   Your backups, and the encryption keys that protect them, are yours
+   alone - Wolf-Pak Innovations cannot access, recover, or decrypt them on
+   your behalf, including if you lose your key.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+   NONINFRINGEMENT. IN NO EVENT SHALL WOLF-PAK INNOVATIONS BE LIABLE FOR
+   ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE USE OF THE
+   SOFTWARE, INCLUDING DATA LOSS, TO THE MAXIMUM EXTENT PERMITTED BY
+   APPLICABLE LAW.
+
+6. PRIOR MIT-LICENSED VERSIONS
+
+   An earlier version of this project (commit c61f7d3, "Initial commit")
+   was published under the MIT License. This Agreement governs the
+   current and future versions of Sentinel Backup; it does not withdraw
+   whatever rights that historical MIT release already granted to anyone
+   who obtained the code under those terms.
+
+7. CONTACT
+
+   Wolf-Pak Innovations - wolfpak_innovations@outlook.com

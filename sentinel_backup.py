@@ -24,6 +24,11 @@ Commands:
                     destinations only - see README for cloud destinations).
     status          Show destination, config, capacity, and last-run summary.
     init            Write a starter config file.
+    license         Show trial/license status, or activate with --key.
+
+7-day free trial from first run. After that, run/watch require a valid
+license key from Wolf-Pak Innovations - verify, restore, and status are
+never gated, regardless of license status. See licensing.py.
 
 Author: <your name>
 License: see LICENSE
@@ -47,6 +52,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import licensing
 from crypto_utils import KeySource, decrypt_file, encrypt_file, resolve_key
 from destinations import BackupDestination, LocalDestination, build_destination
 
@@ -655,6 +661,11 @@ class SentinelBackup:
     def run_once(self) -> int:
         started = time.time()
 
+        access = licensing.check_access()
+        if not access.allowed and not self.dry_run:
+            self.log(f"[blocked] {access.reason}")
+            return 5
+
         if self.key_error:
             self.log(f"[error] Could not prepare encryption key: {self.key_error}")
             return 2
@@ -688,6 +699,7 @@ class SentinelBackup:
         self.log(f"  source      : {self.source}")
         self.log(f"  destination : {self.destination_type}   [{self.target_note}]")
         self.log(f"  encryption  : AES-256-GCM (key_source={self.cfg.key_source})")
+        self.log(f"  license     : {access.reason}")
         self.log(f"  space       : {cap_note}")
         self.log("-" * 66)
 
@@ -914,6 +926,8 @@ class SentinelBackup:
         self.log(f"  Connectivity  : {'connected' if self.connected else 'NOT CONNECTED'}  ({self.target_note})")
         key_note = f"key_source={self.cfg.key_source}" if not self.key_error else f"KEY ERROR: {self.key_error}"
         self.log(f"  Encryption    : AES-256-GCM  ({key_note})")
+        access = licensing.check_access()
+        self.log(f"  License       : {access.reason}")
         if self.destination_type == "local" and self.connected:
             total, used, free = shutil.disk_usage(self.target_root)
             self.log(f"  Capacity      : {free / 1e9:.1f} GB free of {total / 1e9:.1f} GB")
@@ -971,18 +985,35 @@ def build_parser() -> argparse.ArgumentParser:
   python sentinel_backup.py verify
   python sentinel_backup.py restore --to "C:\\Users\\Me\\Desktop\\Recovered" --pattern "*.pdf"
   python sentinel_backup.py prune
+  python sentinel_backup.py license
+  python sentinel_backup.py license --key "<the key Wolf-Pak Innovations sent you>"
 """,
     )
     p.add_argument("command",
-                   choices=["run", "watch", "verify", "restore", "prune", "status", "init"])
+                   choices=["run", "watch", "verify", "restore", "prune", "status", "init", "license"])
     p.add_argument("--config", type=Path, default=Path(__file__).with_name(CONFIG_FILENAME))
     p.add_argument("--dry-run", action="store_true",
                    help="Show exactly what would happen. Writes nothing, deletes nothing.")
     p.add_argument("--quiet", action="store_true", help="Suppress console output (for scheduled runs).")
     p.add_argument("--to", type=Path, help="restore: destination folder")
     p.add_argument("--pattern", default="*", help="restore: glob filter, e.g. '*.docx'")
+    p.add_argument("--key", help="license: activate with a key issued by Wolf-Pak Innovations")
     p.add_argument("--version", action="version", version=f"sentinel_backup {__version__}")
     return p
+
+
+def cmd_license(key: str | None) -> int:
+    if key:
+        try:
+            info = licensing.save_license_key(key)
+        except ValueError as e:
+            print(f"[error] {e}")
+            return 1
+        print(f"License activated: {info.customer} ({info.plan}/{info.billing}), expires {info.expires:%Y-%m-%d}")
+        return 0
+    access = licensing.check_access()
+    print(access.reason)
+    return 0 if access.allowed else 5
 
 
 def cmd_init(path: Path) -> int:
@@ -1006,6 +1037,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         return cmd_init(args.config)
+    if args.command == "license":
+        return cmd_license(args.key)
 
     cfg = Config.load(args.config)
     engine = SentinelBackup(cfg, dry_run=args.dry_run, quiet=args.quiet)

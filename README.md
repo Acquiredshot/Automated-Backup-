@@ -95,6 +95,32 @@ python sentinel_backup.py run
 
 ---
 
+## Licensing
+
+Sentinel Backup is free to use for **7 days** from first run, full features included.
+After that, creating new backups (`run`/`watch`, and the GUI's Run button) requires an
+active subscription from Wolf-Pak Innovations — `verify`, `restore`, and `status` keep
+working regardless of license status, trial or not, so you're never locked out of
+restoring your own already-encrypted data.
+
+```powershell
+python sentinel_backup.py license                    # show trial/license status
+python sentinel_backup.py license --key "<the key Wolf-Pak Innovations sent you>"
+```
+
+The GUI's Dashboard tab shows the same status and has an Activate field.
+
+Plans: **Personal** ($5/mo or $42/yr, one machine) and **Business** ($22/seat/mo or
+$198/seat/yr, 5-seat minimum, fleet-wide audit consolidation and NIST CSF
+control-mapping export). A one-time perpetual Personal license is also available.
+Contact <wolfpak_innovations@outlook.com> to subscribe or for current pricing. See
+`LICENSE` for the full terms.
+
+License keys are Ed25519-signed and verified fully offline (no phoning home) — see
+`licensing.py`. `--dry-run` is never gated, since it writes nothing.
+
+---
+
 ## The one local-destination setting that matters
 
 Open `sentinel_config.json` and set your drive's **volume label**:

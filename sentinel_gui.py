@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 )
 
 import crypto_utils
+import licensing
 from sentinel_backup import CONFIG_FILENAME, DEFAULT_CONFIG, Config, SentinelBackup
 
 SCRIPT_DIR = Path(__file__).parent
@@ -141,6 +142,16 @@ class DashboardTab(QWidget):
         super().__init__()
         self.main_window = main_window
 
+        self.license_label = QLabel()
+        self.license_label.setWordWrap(True)
+        self.license_key_edit = QLineEdit()
+        self.license_key_edit.setPlaceholderText("Paste a license key from Wolf-Pak Innovations")
+        activate_btn = QPushButton("Activate")
+        activate_btn.clicked.connect(self._activate_license)
+        license_row = QHBoxLayout()
+        license_row.addWidget(self.license_key_edit, stretch=1)
+        license_row.addWidget(activate_btn)
+
         self.status_view = QPlainTextEdit(readOnly=True)
         self.status_view.setFont(MONOSPACE)
         self.status_view.setPlaceholderText("Click Refresh Status to check the destination.")
@@ -148,25 +159,59 @@ class DashboardTab(QWidget):
         self.dry_run_box = QCheckBox("Dry run (writes nothing, deletes nothing)")
 
         refresh_btn = QPushButton("Refresh Status")
-        run_btn = QPushButton("Run Backup Now")
+        self.run_btn = QPushButton("Run Backup Now")
         verify_btn = QPushButton("Verify Archive")
         prune_btn = QPushButton("Prune Old Versions")
 
         refresh_btn.clicked.connect(lambda: self.main_window.start_action("status"))
-        run_btn.clicked.connect(lambda: self.main_window.start_action("run", dry_run=self.dry_run_box.isChecked()))
+        self.run_btn.clicked.connect(lambda: self.main_window.start_action("run", dry_run=self.dry_run_box.isChecked()))
         verify_btn.clicked.connect(lambda: self.main_window.start_action("verify"))
         prune_btn.clicked.connect(lambda: self.main_window.start_action("prune", dry_run=self.dry_run_box.isChecked()))
 
         btn_row = QHBoxLayout()
-        for b in (refresh_btn, run_btn, verify_btn, prune_btn):
+        for b in (refresh_btn, self.run_btn, verify_btn, prune_btn):
             btn_row.addWidget(b)
         btn_row.addStretch(1)
 
         layout = QVBoxLayout(self)
+        layout.addWidget(self.license_label)
+        layout.addLayout(license_row)
         layout.addWidget(QLabel("Status"))
         layout.addWidget(self.status_view, stretch=1)
         layout.addWidget(self.dry_run_box)
         layout.addLayout(btn_row)
+
+        self._license_allowed = True
+        self.dry_run_box.toggled.connect(self._update_run_enabled)
+        self.refresh_license_status()
+
+    def refresh_license_status(self) -> None:
+        access = licensing.check_access()
+        self.license_label.setText(f"License: {access.reason}")
+        self._license_allowed = access.allowed
+        self._update_run_enabled()
+
+    def _update_run_enabled(self) -> None:
+        # A dry run never writes anything, so it stays available as a way to
+        # evaluate the product even past the trial - only the real Run is gated.
+        self.run_btn.setEnabled(self._license_allowed or self.dry_run_box.isChecked())
+
+    def _activate_license(self) -> None:
+        key = self.license_key_edit.text().strip()
+        if not key:
+            QMessageBox.warning(self, "No key", "Paste a license key first.")
+            return
+        try:
+            info = licensing.save_license_key(key)
+        except ValueError as e:
+            QMessageBox.critical(self, "Activation failed", str(e))
+            return
+        QMessageBox.information(
+            self, "Activated",
+            f"Licensed to {info.customer} ({info.plan}/{info.billing}), expires {info.expires:%Y-%m-%d}.",
+        )
+        self.license_key_edit.clear()
+        self.refresh_license_status()
 
 
 # --------------------------------------------------------------------------
@@ -665,6 +710,7 @@ class MainWindow(QMainWindow):
         self.tabs.setEnabled(True)
         self.statusBar().showMessage(f"Idle (last exit code: {code})")
         self._current_action = None
+        self.dashboard_tab.refresh_license_status()
 
 
 def main() -> int:

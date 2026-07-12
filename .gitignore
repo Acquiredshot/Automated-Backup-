@@ -7,3 +7,9 @@ backup_salt.bin
 .sentinel_state/
 .wolfpak_backup_key
 .wolfpak_backup_key.dpapi
+
+# Marketing page - kept local/artifact only, not committed
+Pricing_layout.html
+
+# Vendor-only license-minting tool - never distributed, local use only
+issue_license.py
